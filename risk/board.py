@@ -1,7 +1,9 @@
 import os
 import random
+import collections
 from collections import namedtuple
-
+from queue import PriorityQueue
+import copy
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
@@ -111,6 +113,19 @@ class Board(object):
         Returns:
             bool: True if the input path is valid
         '''
+        if not len(set(path)) == len(path):
+            return False
+
+        def go(xs):
+            if len(xs) <= 1:
+                return True
+            neighbors = list(self.neighbors(xs[0]))
+            neighbors = [neighbor.territory_id for neighbor in neighbors]
+            if xs[1] in neighbors:
+                return self.is_valid_path(xs[1:])
+            else:
+                return False
+        return go(path)
 
     
     def is_valid_attack_path(self, path):
@@ -130,8 +145,21 @@ class Board(object):
         Returns:
             bool: True if the path is an attack path
         '''
+        if not self.is_valid_path(path):
+            return False
+        if len(path) < 2:
+            return False
+        player1 = self.owner(path[0])
+        def go(xs, player1):
+            if len(xs) <= 1:
+                return True
+            if self.owner(xs[1]) != player1:
+                return go(xs[1:], player1)
+            else:
+                return False
+        return go(path, player1)
 
-
+            
     def cost_of_attack_path(self, path):
         '''
         The cost of an attack path is the total number of enemy armies in the path.
@@ -143,7 +171,11 @@ class Board(object):
         Returns:
             bool: the number of enemy armies in the path
         '''
-
+        cost = 0
+        for x in range(len(path)):
+            if x > 0:
+                cost += self.armies(path[x])
+        return cost
 
     def shortest_path(self, source, target):
         '''
@@ -162,6 +194,30 @@ class Board(object):
             [int]: a valid path between source and target that has minimum length; this path is guaranteed to exist
         '''
 
+        if source == target:
+            emplist = []
+            emplist.append(source)
+            return emplist
+        territory_ids = list(range(42))
+        terstack = []
+        terstack.append(source)
+        terqueue = collections.deque([])
+        terqueue.append(terstack)
+        while len(terqueue) != 0:
+            terstack = terqueue.popleft()
+            territorycopy = territory_ids.copy()
+            neighbors = list(self.neighbors(terstack[-1]))
+            neighbors = [neighbor.territory_id for neighbor in neighbors]
+            for neigh in territorycopy:
+                if neigh in neighbors:
+                    if neigh == target:
+                        terstack.append(neigh)
+                        return terstack
+                    copy_of_terstack = terstack.copy()
+                    copy_of_terstack.append(neigh)
+                    terqueue.append(copy_of_terstack)
+                    territory_ids.remove(neigh)
+        return None
 
     def can_fortify(self, source, target):
         '''
@@ -177,6 +233,33 @@ class Board(object):
             bool: True if reinforcing the target from the source territory is a valid move
         '''
 
+        if source == target:
+            emplist = []
+            emplist.append(source)
+            return True
+        territory_ids = list(range(42))
+        terstack = []
+        player = self.owner(source)
+        terstack.append(source)
+        terqueue = collections.deque([])
+        terqueue.append(terstack)
+        while len(terqueue) != 0:
+            terstack = terqueue.popleft()
+            territorycopy = territory_ids.copy()
+            neighbors = list(self.neighbors(terstack[-1]))
+            neighbors = [neighbor.territory_id for neighbor in neighbors]
+            for neigh in territorycopy:
+                if self.owner(neigh) == player: 
+                    if neigh in neighbors:
+                        if neigh == target:
+                            terstack.append(neigh)
+                            return True 
+                        copy_of_terstack = terstack.copy()
+                        copy_of_terstack.append(neigh)
+                        terqueue.append(copy_of_terstack)
+                        territory_ids.remove(neigh)
+        return False
+
 
     def cheapest_attack_path(self, source, target):
         '''
@@ -191,8 +274,78 @@ class Board(object):
         Returns:
             [int]: a list of territory_ids representing the valid attack path; if no path exists, then it returns None instead
         '''
+        if source == target:
+            return None
+        dictionary = {}
+        dictionary = {source: [source]}
+        q = PriorityQueue()
+        player = self.owner(source)
+        q.put((0, source))
+        visitedterritories = []
+        visitedterritories.append(source)
+        while not q.empty():
+            tempterinfo = q.get()
+            tempter = tempterinfo[1]
+            print("print(q.queue)=", q.queue)
+            print(dictionary[tempter])
+          #  print(tempterinfo)
+            tempprior = tempterinfo[0]
+            if tempter == target:
+                print("final")
+                return dictionary[tempter]
+            neighbors = list(self.neighbors(tempter))
+            neighbors = [neighbor.territory_id for neighbor in neighbors]
+            enemyneighbors = []
+            for neigh in neighbors:
+                if self.owner(neigh) != player:
+                    enemyneighbors.append(neigh)
+            for neigh in enemyneighbors:
+                if neigh not in visitedterritories:
+                    dictcopy = dictionary[tempter].copy()
+                    dictcopy.append(neigh)
+                    priority = tempprior + self.armies(neigh)
+                    if neigh not in [item for p, item in q.queue]:
+                        print(neigh)
+                        dictionary[neigh] = dictcopy
+        #                print(priority)
+                        q.put((priority, neigh))
+        #                print(q)
+                    for p, item in q.queue:
+                        if neigh  == item:
+                            if priority < p:
+                                dictionary[neigh] = dictcopy
+                                p = priority
+            visitedterritories.append(tempter)
+    
+        
+            
+#use enumerate
+#risk.definitions
 
 
+#    Create a dictionary whose keys are territories and values are path
+#    Set dictionary[source] = [source]
+#++  Create a PRIORITY queue
+#++  Enqueue source onto the PRIORITY queue WITH PRIORITY 0
+#    Create a set of visited territories
+#    Add source to the set
+#
+#++  While the PRIORITY queue is not empty
+#++      Dequeue current_territory from the PRIORITY queue
+#        If current_territory is the target
+#            return the dictionary[current_territory]
+#        For each territory in the neighbors of current_territory that is not in the visited set
+#            Make a copy of dictionary[current_territory]
+#            Push territory onto the copy
+#++          CALCULATE THE PRIORITY OF THE PATH AS PRIORITY OF CURRENT_TERRITORY + NUMBER OF ARMIES ON TERRITORY
+#++          IF TERRITORY NOT IN THE PRIORITY QUEUE
+#                Set dictionary[territory] = copy + territory
+#++              Enqueue territory WITH PRIORITY 
+#++          ELSE, IF THE NEW PRIORITY IS LESS THEN THE PRIORITY IN THE QUEUE
+#                Set dictionary[territory] = copy + territory
+#++              UPDATE THE TERRITORY'S PRIORITY IN THE PRIORITY QUEUE WITH THE NEW PRIORITY
+#        Add current_territory to the visited set
+#heapq
     def can_attack(self, source, target):
         '''
         Args:
@@ -203,6 +356,10 @@ class Board(object):
             bool: True if a valid attack path exists between source and target; else False
         '''
 
+        if self.cheapest_attack_path(source, target):
+            return True
+        else:
+            return False
 
     # ======================= #
     # == Continent Methods == #
